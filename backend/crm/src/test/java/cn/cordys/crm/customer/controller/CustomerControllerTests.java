@@ -463,11 +463,25 @@ class CustomerControllerTests extends BaseTest {
         addRequest.setOwner("admin");
         MvcResult addResult = this.requestPostWithOkAndReturn(DEFAULT_ADD, addRequest);
         Customer resultData = getResultData(addResult, Customer.class);
-        mergeRequest.setMergeIds(List.of(anotherCustomer.getId()));
+        addRequest.setName("merge-source");
+        Customer mergeSource = getResultData(requestPostWithOkAndReturn(DEFAULT_ADD, addRequest), Customer.class);
+        mergeRequest.setMergeIds(List.of(mergeSource.getId()));
         mergeRequest.setToMergeId(resultData.getId());
         this.requestPostWithOk(MERGE, mergeRequest);
-        // check permission
-        requestPostPermissionTest(PermissionConstants.CUSTOMER_MANAGEMENT_MERGE, MERGE, mergeRequest);
+        Assertions.assertNull(customerMapper.selectByPrimaryKey(mergeSource.getId()));
+
+        // 每次权限请求使用独立来源，避免合并删除来源后影响后续校验。
+        addRequest.setName("merge-permission-source");
+        Customer permissionSource = getResultData(requestPostWithOkAndReturn(DEFAULT_ADD, addRequest), Customer.class);
+        addRequest.setName("merge-denied-source");
+        Customer deniedSource = getResultData(requestPostWithOkAndReturn(DEFAULT_ADD, addRequest), Customer.class);
+        var permissionSourceIterator = List.of(permissionSource.getId(), deniedSource.getId()).iterator();
+        requestPermissionTest(PermissionConstants.CUSTOMER_MANAGEMENT_MERGE, MERGE, () -> {
+            mergeRequest.setMergeIds(List.of(permissionSourceIterator.next()));
+            return getPermissionPostRequestBuilder(MERGE, mergeRequest);
+        });
+        Assertions.assertNull(customerMapper.selectByPrimaryKey(permissionSource.getId()));
+        Assertions.assertNotNull(customerMapper.selectByPrimaryKey(deniedSource.getId()));
     }
 
     private List<CustomerField> getCustomerFields(String customerId) {
